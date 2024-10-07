@@ -3,7 +3,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 
 const app = express();
-const server = http.createServer(app);
+const server = app.listen();
 const io = socketIo(server);
 
 const PORT = process.env.PORT || 3000;
@@ -42,6 +42,14 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('gameEnd', (winner) => {
+        console.log(`${winner} won the game`);
+        const game = activegames.get(socket.id);
+        if (game) {
+            io.to(game.opponent).emit('gameOver', { winner });
+        }
+    });
+
     socket.on('disconnect', () => {
         console.log('User disconnected');
         handleDisconnect(socket);
@@ -55,7 +63,7 @@ function findgame(socket, playerName) {
             players: [socket.id, opponent.id],
             playerNames: [playerName, opponent.playerName]
         };
-        
+
         activegames.set(socket.id, { opponent: opponent.id, game });
         activegames.set(opponent.id, { opponent: socket.id, game });
 
@@ -63,7 +71,13 @@ function findgame(socket, playerName) {
         opponent.socket.emit('gameStart', { opponentName: playerName, isHost: false });
     } else {
         waitingPlayers.push({ id: socket.id, socket, playerName });
-        socket.emit('waiting');
+
+        setTimeout(() => {
+            const waitingPlayer = waitingPlayers.find(player => player.id === socket.id);
+            if (waitingPlayer) {
+                socket.emit('noOpponentFound');
+            }
+        }, 15000); // 15 seconds timeout
     }
 }
 
