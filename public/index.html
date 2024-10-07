@@ -52,6 +52,8 @@
         let isHost = false;
         let gameStarted = false;
 
+        const maxScore = 5;
+
         const ball = {
             x: canvas.width / 2,
             y: canvas.height / 2,
@@ -99,7 +101,7 @@
             opponentName = data.opponentName;
             isHost = data.isHost;
             gameStarted = true;
-            alert(`game started! Your opponent is ${opponentName}`);
+            alert(`Game started! Your opponent is ${opponentName}`);
             resetGame();
             gameLoop();
         });
@@ -131,6 +133,15 @@
         socket.on('opponentLeft', () => {
             alert("Your opponent has left the game.");
             gameStarted = false;
+        });
+
+        socket.on('gameOver', (data) => {
+            alert(`${data.winner} won the game!`);
+            gameStarted = false;
+        });
+
+        socket.on('noOpponentFound', () => {
+            alert("No opponent found within the time limit. Try again later.");
         });
 
         function resetGame() {
@@ -199,6 +210,16 @@
         function updateScoreDisplay() {
             player1ScoreElement.textContent = `${playerName}: ${paddle1.score}`;
             player2ScoreElement.textContent = `${opponentName}: ${paddle2.score}`;
+            checkGameEnd();
+        }
+
+        function checkGameEnd() {
+            if (paddle1.score >= maxScore || paddle2.score >= maxScore) {
+                gameStarted = false;
+                let winner = paddle1.score >= maxScore ? playerName : opponentName;
+                alert(`${winner} wins!`);
+                socket.emit('gameEnd', winner);
+            }
         }
 
         function draw() {
@@ -218,6 +239,16 @@
         document.addEventListener('mousemove', (e) => {
             if (!gameStarted) return;
             const mouseY = e.clientY - canvas.getBoundingClientRect().top;
+            movePaddle(mouseY);
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!gameStarted) return;
+            const touchY = e.touches[0].clientY - canvas.getBoundingClientRect().top;
+            movePaddle(touchY);
+        });
+
+        function movePaddle(mouseY) {
             paddle1.y = mouseY - paddle1.height / 2;
 
             if (paddle1.y < 0) {
@@ -227,7 +258,7 @@
             }
 
             socket.emit('paddleMove', paddle1.y);
-        });
+        }
     </script>
 </body>
 </html>
