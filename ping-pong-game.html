@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Ping Pong Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: 20px 0;
+        }
+        #gameControls, #playerInfo {
+            margin-bottom: 20px;
+        }
+        button {
+            margin: 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="playerInfo">
+        <input type="text" id="playerName" placeholder="Enter your name">
+        <button onclick="setPlayerName()">Set Name</button>
+    </div>
+    <div id="gameControls">
+        <button onclick="findOpponent()">Find Opponent</button>
+    </div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <div id="scoreBoard">
+        <span id="player1Score">Player 1: 0</span>
+        <span id="player2Score">Player 2: 0</span>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const player1ScoreElement = document.getElementById('player1Score');
+        const player2ScoreElement = document.getElementById('player2Score');
+
+        let playerName = "";
+        let opponentName = "";
+        let isHost = false;
+        let gameStarted = false;
+
+        const ball = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            radius: 10,
+            dx: 5,
+            dy: 5
+        };
+
+        const paddle1 = {
+            x: 10,
+            y: canvas.height / 2 - 40,
+            width: 10,
+            height: 80,
+            dy: 8,
+            score: 0
+        };
+
+        const paddle2 = {
+            x: canvas.width - 20,
+            y: canvas.height / 2 - 40,
+            width: 10,
+            height: 80,
+            dy: 8,
+            score: 0
+        };
+
+        function setPlayerName() {
+            playerName = document.getElementById('playerName').value;
+            alert(`Welcome, ${playerName}!`);
+        }
+
+        function findOpponent() {
+            if (!playerName) {
+                alert("Please set your name first!");
+                return;
+            }
+            socket.emit('findgame', playerName);
+        }
+
+        socket.on('waiting', () => {
+            alert("Waiting for an opponent...");
+        });
+
+        socket.on('gameStart', (data) => {
+            opponentName = data.opponentName;
+            isHost = data.isHost;
+            gameStarted = true;
+            alert(`game started! Your opponent is ${opponentName}`);
+            resetGame();
+            gameLoop();
+        });
+
+        socket.on('opponentPaddleMove', (y) => {
+            paddle2.y = y;
+        });
+
+        socket.on('ballUpdate', (ballData) => {
+            if (!isHost) {
+                ball.x = canvas.width - ballData.x;
+                ball.y = ballData.y;
+                ball.dx = -ballData.dx;
+                ball.dy = ballData.dy;
+            }
+        });
+
+        socket.on('scoreUpdate', (scoreData) => {
+            if (isHost) {
+                paddle1.score = scoreData.player1;
+                paddle2.score = scoreData.player2;
+            } else {
+                paddle1.score = scoreData.player2;
+                paddle2.score = scoreData.player1;
+            }
+            updateScoreDisplay();
+        });
+
+        socket.on('opponentLeft', () => {
+            alert("Your opponent has left the game.");
+            gameStarted = false;
+        });
+
+        function resetGame() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1);
+            ball.dy = 5 * (Math.random() > 0.5 ? 1 : -1);
+            paddle1.y = canvas.height / 2 - 40;
+            paddle2.y = canvas.height / 2 - 40;
+            paddle1.score = 0;
+            paddle2.score = 0;
+            updateScoreDisplay();
+        }
+
+        function gameLoop() {
+            if (!gameStarted) return;
+            if (isHost) {
+                update();
+                socket.emit('updateBall', { x: ball.x, y: ball.y, dx: ball.dx, dy: ball.dy });
+            }
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update() {
+            moveBall();
+            checkCollision();
+        }
+
+        function moveBall() {
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+        }
+
+        function checkCollision() {
+            if (ball.y + ball.radius > canvas.height || ball.y - ball.radius < 0) {
+                ball.dy *= -1;
+            }
+
+            if (
+                (ball.x - ball.radius < paddle1.x + paddle1.width && ball.y > paddle1.y && ball.y < paddle1.y + paddle1.height) ||
+                (ball.x + ball.radius > paddle2.x && ball.y > paddle2.y && ball.y < paddle2.y + paddle2.height)
+            ) {
+                ball.dx *= -1.1;
+            }
+
+            if (ball.x + ball.radius > canvas.width) {
+                paddle1.score++;
+                resetBall();
+            } else if (ball.x - ball.radius < 0) {
+                paddle2.score++;
+                resetBall();
+            }
+
+            updateScoreDisplay();
+            socket.emit('updateScore', { player1: paddle1.score, player2: paddle2.score });
+        }
+
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1);
+            ball.dy = 5 * (Math.random() > 0.5 ? 1 : -1);
+        }
+
+        function updateScoreDisplay() {
+            player1ScoreElement.textContent = `${playerName}: ${paddle1.score}`;
+            player2ScoreElement.textContent = `${opponentName}: ${paddle2.score}`;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = 'black';
+            ctx.fill();
+            ctx.closePath();
+
+            ctx.fillStyle = 'black';
+            ctx.fillRect(paddle1.x, paddle1.y, paddle1.width, paddle1.height);
+            ctx.fillRect(paddle2.x, paddle2.y, paddle2.width, paddle2.height);
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (!gameStarted) return;
+            const mouseY = e.clientY - canvas.getBoundingClientRect().top;
+            paddle1.y = mouseY - paddle1.height / 2;
+
+            if (paddle1.y < 0) {
+                paddle1.y = 0;
+            } else if (paddle1.y + paddle1.height > canvas.height) {
+                paddle1.y = canvas.height - paddle1.height;
+            }
+
+            socket.emit('paddleMove', paddle1.y);
+        });
+    </script>
+</body>
+</html>
